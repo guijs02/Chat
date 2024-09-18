@@ -1,0 +1,169 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client;
+
+
+
+@if (string.IsNullOrEmpty(message) is false)
+{
+    <p>
+        Erro: <span style="color:red">@message</span>
+    </p>
+}
+<br />
+@if (!IsChatting)
+{
+
+    <label>Entre com o seu nome no chat</label>
+    <input type="text" maxlength="32" placeholder="Usuario" @bind-value="usuario" />
+
+    <button type="button" @onclick="Chat"><span class="oi oi-chat"></span>Chat!</button>
+
+}
+else
+{
+
+    <div class="alert alert-secondary mt-4" role="alert">
+        <span class="oi oi-person mr-2" aria-hidden="true"></span>
+        <span>You are connected as <b>@usuario</b></span>
+        <button class="btn btn-sm btn-warning ml-md-auto" @onclick="@DisconnectAsync">Disconnect</button>
+    </div>
+    <div>
+        <Virtualize Items="messages" Context="item">
+
+            @if (item.IsNotice)
+            {
+                <br />
+
+                <br />
+                <div class="alert alert-info">@item.Body</div>
+            }
+            else
+            {
+                <br />
+
+                <br />
+                <div class="user" style="background-color:yellow">@item.UserName                   @item.dateTime</div>
+                <br />
+                <div class="media media-chat">
+
+                    <div class="media-body-chat">
+                        <p>@item.Body</p>
+                    </div>
+
+                </div>
+
+                <div class="@item.CSS">
+                </div>
+            }
+
+        </Virtualize>
+        <hr />
+        <div class="flex-grow-0 py-3 px-4 border-top">
+            <div class="input-group">
+
+                <input type="text" class="form-control" placeholder="Digite uma mensagem" @bind="_newMessage"></input>
+                <button class="btn btn-primary" @onclick="@((args) => SendAsync(_newMessage))">Send</button>
+            </div>
+
+        </div>
+    </div>
+
+}
+@code {
+    public string message { get; set; } = string.Empty;
+    public string _newMessage { get; set; }
+    public string usuario { get; set; }
+
+    public bool IsChatting { get; set; }
+    public string hubUrl;
+    private HubConnection hubConnection;
+    private List<Message> messages = new();
+
+    public void BroadCastMessage(string nome, string message)
+    {
+        bool isMine = nome.Equals(usuario, StringComparison.OrdinalIgnoreCase);
+
+        messages.Add(new Message(nome, message, isMine));
+
+        StateHasChanged();
+    }
+    private async Task SendAsync(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message) is false)
+        {
+            await hubConnection.SendAsync("SendMessage", usuario, message);
+            _newMessage = string.Empty;
+        }
+
+    }
+    private async Task DisconnectAsync()
+    {
+
+        await SendAsync($"[Notice] {usuario} saiu.");
+
+        await hubConnection.StopAsync();
+        await hubConnection.DisposeAsync();
+
+        hubConnection = null;
+        IsChatting = false;
+
+    }
+    public async Task Chat()
+    {
+        if (string.IsNullOrWhiteSpace(usuario))
+        {
+            message = "Por favor digite o seu nome";
+            return;
+        }
+
+        try
+        {
+            IsChatting = true;
+
+            hubUrl = "https://localhost:7028" + "/chat";
+
+            hubConnection = new HubConnectionBuilder().WithUrl(hubUrl).Build();
+
+            hubConnection.On<string, string>("SendMessage", BroadCastMessage);
+
+            await hubConnection.StartAsync();
+
+            await SendAsync($"[Notice] {usuario} entrou");
+
+        }
+        catch (Exception e)
+        {
+            message = e.Message;
+            IsChatting = false;
+        }
+    }
+    private class Message
+    {
+        public Message(string name, string message, bool isMine)
+        {
+            UserName = name;
+            Body = message;
+            Mine = isMine;
+            dateTime = DateTime.Now;
+        }
+        public DateTime dateTime { get; set; }
+
+        public string UserName { get; set; }
+
+        public string Body { get; set; }
+
+        public bool Mine { get; set; }
+
+        public bool IsNotice => Body.StartsWith("[Notice]");
+
+        public string CSS => Mine ? "sent" : "received";
+    }
+}
+<style>
+    .media-body-chat {
+        border-radius: 4px;
+        width: 30%;
+        border: black 1px solid;
+    }
+
+</style>
